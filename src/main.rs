@@ -133,10 +133,7 @@ fn main() {
         ),
         output_state: OutputState::new(
             &globals,
-            &event_loop
-                .handle()
-                .clone()
-                .into(),
+            &qh,
         ),
         compositor,
         layer_shell,
@@ -148,8 +145,6 @@ fn main() {
         _ipc: ipc,
     };
 
-    // registry_queue_init already delivered globals; OutputState needs the
-    // real queue handle, not a loop handle — fixed below (see App::new note).
     eprintln!("[MinkaFX] up; waiting for outputs and snap.preview broadcasts");
 
     loop {
