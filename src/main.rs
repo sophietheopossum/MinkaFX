@@ -127,7 +127,7 @@ fn main() {
 
     let mut app = App {
         conn,
-        qh,
+        qh: qh.clone(),
         registry_state: RegistryState::new(
             &globals
         ),

@@ -14,6 +14,9 @@ calloop = "0.14"
 calloop-wayland-source = "0.4"
 smithay-client-toolkit = "0.19"
 wayland-client = "0.31"
+# wgpu hands the raw wl_display*/wl_surface* to Vulkan/EGL, which requires
+# the real libwayland (system) backend rather than the pure-Rust one.
+wayland-backend = { version = "0.3", features = ["client_system"] }
 wgpu = "26"
 raw-window-handle = "0.6"
 pollster = "0.4"
