@@ -389,6 +389,14 @@ impl App {
             .iter()
             .position(|o| o.connector.as_deref() == Some(monitor))
         else {
+            let known: Vec<String> = self
+                .overlays
+                .iter()
+                .map(|o| o.connector.clone().unwrap_or_default())
+                .collect();
+            eprintln!(
+                "[minka-fx] snap.preview for unknown output {monitor:?}; overlays: {known:?}"
+            );
             return;
         };
 
@@ -399,6 +407,16 @@ impl App {
                 // Appearing from nothing: materialize at the target and only
                 // fade, instead of flying in from a stale rect.
                 if overlay.alpha.value < 0.02 && overlay.target.is_none() {
+                    // One line per preview session — enough to debug an
+                    // invisible preview without flooding during drags.
+                    eprintln!(
+                        "[minka-fx] snap preview begin on {monitor}: rect {rect:?} tiling={tiling} surface {}x{} scale {} configured={} gpu={}",
+                        overlay.width,
+                        overlay.height,
+                        overlay.scale,
+                        overlay.configured,
+                        overlay.gpu.is_some(),
+                    );
                     overlay.x.snap(rect[0]);
                     overlay.y.snap(rect[1]);
                     overlay.w.snap(rect[2]);
