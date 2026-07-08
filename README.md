@@ -15,7 +15,8 @@ ShojiWM's NDJSON IPC socket via the MinkaIPC crate.
       transmit state, not frames), fades in/out, sleeps when settled (zero
       frames rendered while idle).
 - [ ] OSDs (volume/brightness pop-overlays) — next.
-- [ ] Dock reveal effect — waits on dock testing.
+- ~~Dock reveal effect~~ — dropped: the dock is a persistent taskbar now
+  (Sophie, 8/7/2026), so there is no reveal to animate.
 
 ## Behavior notes
 
