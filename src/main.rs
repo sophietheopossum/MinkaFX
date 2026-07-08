@@ -437,7 +437,15 @@ impl App {
                 &wgpu::DeviceDescriptor {
                     label: Some("minka-fx"),
                     required_features: wgpu::Features::empty(),
-                    required_limits: wgpu::Limits::downlevel_defaults(),
+                    // Modest baseline, but the surface must span the largest
+                    // output (the 4K test TV), so take the adapter's real
+                    // texture ceiling.
+                    required_limits: wgpu::Limits {
+                        max_texture_dimension_2d: adapter
+                            .limits()
+                            .max_texture_dimension_2d,
+                        ..wgpu::Limits::downlevel_defaults()
+                    },
                     ..Default::default()
                 },
             ))
