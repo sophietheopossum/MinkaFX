@@ -423,7 +423,7 @@ impl App {
     fn ensure_shared_gpu(
         &mut self,
         surface: &wgpu::Surface<'static>,
-    ) -> &SharedGpu {
+    ) {
         if self.gpu.is_none() {
             let adapter = pollster::block_on(self.instance.request_adapter(
                 &wgpu::RequestAdapterOptions {
@@ -451,9 +451,6 @@ impl App {
                 }
             );
         }
-        self.gpu
-            .as_ref()
-            .unwrap()
     }
 
     fn init_overlay_gpu(&mut self, index: usize) {
@@ -477,10 +474,11 @@ impl App {
             "wgpu surface",
         );
 
-        let shared = self
-            .ensure_shared_gpu(
-                &surface,
-            );
+        self.ensure_shared_gpu(&surface);
+        // Field-precise re-borrow so `self.overlays` stays assignable below.
+        let shared = self.gpu
+            .as_ref()
+            .unwrap();
         let caps = surface.get_capabilities(
             &shared.adapter,
         );
