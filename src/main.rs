@@ -415,8 +415,8 @@ impl App {
                     Some([
                         r.get("x")?.as_f64()? as f32,
                         r.get("y")?.as_f64()? as f32,
-                        r.get("w")?.as_f64()? as f32,
-                        r.get("h")?.as_f64()? as f32,
+                        r.get("width")?.as_f64()? as f32,
+                        r.get("height")?.as_f64()? as f32,
                     ])
                 });
                 let tiling = payload.get("kind").and_then(|v| v.as_str()) == Some(
