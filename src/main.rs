@@ -376,6 +376,11 @@ impl App {
             Layer::Background
         });
         overlay.layer.commit();
+        eprintln!(
+            "[minka-fx] layer -> {} on {}",
+            if raised { "Overlay" } else { "Background" },
+            overlay.connector.as_deref().unwrap_or("<unnamed>"),
+        );
     }
 
     fn handle_ipc(
@@ -390,10 +395,22 @@ impl App {
                 "[minka-fx] ipc lost, retrying",
             ),
             IpcEvent::Broadcast { event, payload } if event == "snap.preview" => {
+                // Temporary: prove whether broadcasts reach us at all. The
+                // compositor dedupes against its own lastSnapJson, which
+                // outlives a MinkaFX restart, so silence is otherwise ambiguous
+                // between "not sent", "not received" and "received but wrong".
+                eprintln!("[minka-fx] RX snap.preview {payload}");
                 let Some(monitor) = payload.get("monitor").and_then(|v| v.as_str()) else {
                     return;
                 };
                 let monitor = monitor.to_string();
+                // `width`/`height`, not `w`/`h`: the compositor builds this in
+                // window-manager.ts (`rect: { x, y, width, height }`) and the
+                // typed SnapPreviewRect agrees. Reading `w`/`h` made the whole
+                // `?` chain yield None, so every preview parsed as rect:null —
+                // a fade-out — and the overlay never drew anything at all. The
+                // `{x,y,w,h}` in the IPC comment above the broadcaster was the
+                // stale half of that drift; it has been corrected.
                 let rect = payload.get("rect").and_then(|r| {
                     Some([
                         r.get("x")?.as_f64()? as f32,
