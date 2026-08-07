@@ -256,6 +256,11 @@ struct Overlay {
     alpha: Spring,
     animating: bool,
     last_frame: Option<Instant>,
+
+    // Whether the surface currently sits on the Overlay layer. See
+    // `sink_when_idle` — we drop to Background between previews so a mapped
+    // but invisible overlay does not cost the compositor its zero-copy path.
+    raised: bool,
 }
 
 struct App {
@@ -335,7 +340,42 @@ impl App {
             alpha: Spring::new(0.0),
             animating: false,
             last_frame: None,
+            // Created on Overlay above, but nothing is being previewed yet, so
+            // the first render settles straight to idle and sinks it.
+            raised: true,
         });
+    }
+
+    /// Park the overlay on the Background layer while there is nothing to draw,
+    /// and lift it back to Overlay when a preview starts.
+    ///
+    /// ShojiWM disables direct scanout outright whenever ANY Top/Overlay layer
+    /// element is present at the same time as a fullscreen window
+    /// (`backend/tty.rs`: `fullscreen_overlay_visible = fullscreen_window
+    /// .is_some() && !upper_layer_elements.is_empty()`, which forces
+    /// `fullscreen_scanout_candidate` to None). Because this overlay stays
+    /// mapped for the whole session — idle just snaps alpha to 0 and stops
+    /// requesting frames, it never detaches its buffer — it was holding that
+    /// switch down permanently: zero `direct scanout engaged` events across
+    /// every session ever logged, on the one output where it matters.
+    ///
+    /// Changing layer rather than unmapping is deliberate. A null-buffer unmap
+    /// would force the whole get_layer_surface/configure handshake again before
+    /// the next preview could draw, whereas set_layer keeps the surface and its
+    /// wgpu swapchain alive. The re-raise lands a frame before anything is
+    /// visible anyway, since a preview always fades up from alpha 0.
+    fn sink_when_idle(&mut self, index: usize, raised: bool) {
+        let overlay = &mut self.overlays[index];
+        if overlay.raised == raised {
+            return;
+        }
+        overlay.raised = raised;
+        overlay.layer.set_layer(if raised {
+            Layer::Overlay
+        } else {
+            Layer::Background
+        });
+        overlay.layer.commit();
     }
 
     fn handle_ipc(
@@ -426,6 +466,14 @@ impl App {
             } else {
                 overlay.target = None; // fade out in place
             }
+        }
+
+        // Lift before drawing rather than waiting for the render to finish: a
+        // preview that arrives while a previous fade-out is still visible would
+        // otherwise get one frame composited down at Background, behind the
+        // windows it is supposed to annotate.
+        if self.overlays[index].target.is_some() {
+            self.sink_when_idle(index, true);
         }
 
         // Kick the frame loop if it is idle.
@@ -766,6 +814,12 @@ impl App {
             )
         );
         frame.present();
+
+        // Park the surface once the last frame of a fade-out is on its way, and
+        // keep it lifted for as long as anything is animating. Deliberately
+        // after present(): `shared` and `overlay` borrow disjoint fields of
+        // self above, and both have to be released before this can take &mut.
+        self.sink_when_idle(index, !idle);
     }
 
     fn overlay_index_for_surface(&self, surface: &wl_surface::WlSurface) -> Option<usize> {
