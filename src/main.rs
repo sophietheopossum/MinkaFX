@@ -14,7 +14,10 @@
 //! so a crash or hang here can never wedge the session.
 
 use std::ptr::NonNull;
-use std::sync::Arc;
+use std::sync::{
+    Arc,
+    OnceLock,
+};
 use std::time::Instant;
 
 use calloop::channel::Event as ChannelEvent;
@@ -38,6 +41,30 @@ use smithay_client_toolkit::{
 use wayland_client::globals::registry_queue_init;
 use wayland_client::protocol::{wl_output, wl_surface};
 use wayland_client::{Connection, Proxy, QueueHandle};
+
+/// Verbose tracing, off unless `MINKA_FX_DEBUG` is set to something other than
+/// `0`. Same shape as ShojiWM's `SHOJI_DIRECT_SCANOUT_DEBUG` so both halves of
+/// an overlay/scanout investigation are enabled the same way.
+///
+/// Only per-event chatter lives behind this. Startup, IPC connect/disconnect,
+/// the once-per-preview-session line and every error path stay unconditional —
+/// they are rare and they are what you want in the log when something has
+/// already gone wrong and you cannot reproduce it on demand.
+fn debug_enabled() -> bool {
+    static ENABLED: OnceLock<bool> = OnceLock::new();
+    *ENABLED.get_or_init(|| {
+        std::env::var_os("MINKA_FX_DEBUG")
+            .is_some_and(|value| value != "0" && !value.is_empty())
+    })
+}
+
+macro_rules! fx_debug {
+    ($($arg:tt)*) => {
+        if crate::debug_enabled() {
+            eprintln!($($arg)*);
+        }
+    };
+}
 
 // Eternal Darkness tokens (Theme.qml is the source of truth).
 // #e0263c
@@ -376,7 +403,7 @@ impl App {
             Layer::Background
         });
         overlay.layer.commit();
-        eprintln!(
+        fx_debug!(
             "[minka-fx] layer -> {} on {}",
             if raised { "Overlay" } else { "Background" },
             overlay.connector.as_deref().unwrap_or("<unnamed>"),
@@ -395,11 +422,12 @@ impl App {
                 "[minka-fx] ipc lost, retrying",
             ),
             IpcEvent::Broadcast { event, payload } if event == "snap.preview" => {
-                // Temporary: prove whether broadcasts reach us at all. The
-                // compositor dedupes against its own lastSnapJson, which
-                // outlives a MinkaFX restart, so silence is otherwise ambiguous
-                // between "not sent", "not received" and "received but wrong".
-                eprintln!("[minka-fx] RX snap.preview {payload}");
+                // Every broadcast as it arrives, raw. The compositor dedupes
+                // against its own lastSnapJson, which outlives a MinkaFX
+                // restart, so without this "nothing happened" is ambiguous
+                // between not sent, not received, and received but misparsed —
+                // which is exactly how the width/height mismatch below hid.
+                fx_debug!("[minka-fx] RX snap.preview {payload}");
                 let Some(monitor) = payload.get("monitor").and_then(|v| v.as_str()) else {
                     return;
                 };
