@@ -82,6 +82,18 @@ const CORNER_RADIUS: f32 = 10.0;
 const RECT_STIFFNESS: f32 = 700.0;
 // 2*sqrt(700) ~ 52.9 => damping ratio ~0.85
 const RECT_DAMPING: f32 = 45.0;
+/// Longest step the explicit spring integrator is run with. Symplectic Euler
+/// only converges while `damping * h < 2` and `sqrt(stiffness) * h < 2`, which
+/// for the fade constants below means h < 1/30 s. Frame-callback gaps on the TV
+/// exceed that during a drag (dt is clamped at 50 ms), and past the limit the
+/// velocity flips sign and grows every frame, so alpha slammed between its 0..1
+/// clamps: the preview flashed on and off for the whole drag and could not
+/// settle. Sub-stepping keeps the tuned feel at normal rates and makes any dt
+/// safe.
+const SPRING_MAX_STEP: f32 = 1.0 / 240.0;
+/// Frame gap past which the un-substepped integrator would have diverged; only
+/// used to report starved outputs in the log.
+const SPRING_UNSTABLE_GAP: f32 = 2.0 / 60.0;
 const FADE_STIFFNESS: f32 = 900.0;
 // critical
 const FADE_DAMPING: f32 = 60.0;
@@ -238,9 +250,17 @@ impl Spring {
         stiffness: f32,
         damping: f32,
     ) {
-        let accel = stiffness * (target - self.value) - damping * self.velocity;
-        self.velocity += accel * dt;
-        self.value += self.velocity * dt;
+        let steps = (dt / SPRING_MAX_STEP).ceil().max(1.0);
+        let h = dt / steps;
+        for _ in 0..steps as u32 {
+            let accel = stiffness * (target - self.value) - damping * self.velocity;
+            self.velocity += accel * h;
+            self.value += self.velocity * h;
+        }
+        // Never let a non-finite value reach the shader or `settled`.
+        if !self.value.is_finite() || !self.velocity.is_finite() {
+            self.snap(target);
+        }
     }
 
     fn snap(
@@ -283,6 +303,11 @@ struct Overlay {
     alpha: Spring,
     animating: bool,
     last_frame: Option<Instant>,
+    // Frame pacing of the current preview, reported once when it goes idle so
+    // a starved output shows in the log without MINKA_FX_DEBUG.
+    frames: u32,
+    slow_frames: u32,
+    longest_gap_ms: f32,
 
     // Whether the surface currently sits on the Overlay layer. See
     // `sink_when_idle` — we drop to Background between previews so a mapped
@@ -367,6 +392,9 @@ impl App {
             alpha: Spring::new(0.0),
             animating: false,
             last_frame: None,
+            frames: 0,
+            slow_frames: 0,
+            longest_gap_ms: 0.0,
             // Created on Overlay above, but nothing is being previewed yet, so
             // the first render settles straight to idle and sinks it.
             raised: true,
@@ -725,11 +753,18 @@ impl App {
         let Some(gpu) = overlay.gpu.as_ref() else { return };
 
         let now = Instant::now();
-        let dt = overlay
-            .last_frame
-            .map(|t| (now - t).as_secs_f32().clamp(0.0001, 0.05))
+        let gap = overlay.last_frame.map(|t| (now - t).as_secs_f32());
+        let dt = gap
+            .map(|g| g.clamp(0.0001, 0.05))
             .unwrap_or(1.0 / 60.0);
         overlay.last_frame = Some(now);
+        overlay.frames += 1;
+        if let Some(gap) = gap {
+            overlay.longest_gap_ms = overlay.longest_gap_ms.max(gap * 1000.0);
+            if gap > SPRING_UNSTABLE_GAP {
+                overlay.slow_frames += 1;
+            }
+        }
 
         // Step springs toward the target (or fade out toward alpha 0).
         let (alpha_target, rect_target) = match overlay.target {
@@ -755,6 +790,19 @@ impl App {
         let idle = settled && overlay.target.is_none();
         if idle {
             overlay.alpha.snap(0.0);
+            if overlay.slow_frames > 0 {
+                eprintln!(
+                    "[minka-fx] preview on {}: {} frames, {} gaps over {:.0} ms (longest {:.0} ms)",
+                    overlay.connector.as_deref().unwrap_or("<unnamed>"),
+                    overlay.frames,
+                    overlay.slow_frames,
+                    SPRING_UNSTABLE_GAP * 1000.0,
+                    overlay.longest_gap_ms,
+                );
+            }
+            overlay.frames = 0;
+            overlay.slow_frames = 0;
+            overlay.longest_gap_ms = 0.0;
         }
 
         let scale = overlay.scale as f32;
@@ -1065,3 +1113,70 @@ delegate_compositor!(App);
 delegate_output!(App);
 delegate_layer!(App);
 delegate_registry!(App);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fade_in(dt: f32, frames: usize) -> Vec<f32> {
+        let mut spring = Spring::new(0.0);
+        (0..frames)
+            .map(|_| {
+                spring.step(1.0, dt, FADE_STIFFNESS, FADE_DAMPING);
+                spring.value
+            })
+            .collect()
+    }
+
+    #[test]
+    fn fade_converges_monotonically_at_the_clamped_gap() {
+        // 50 ms is the dt ceiling in render_overlay; the old single-step
+        // integrator alternated 1, 0, 1, 0 here.
+        let alpha = fade_in(0.05, 40);
+        for pair in alpha.windows(2) {
+            assert!(pair[1] >= pair[0] - 1e-4, "alpha went backwards: {alpha:?}");
+        }
+        assert!(alpha.iter().all(|a| (0.0..=1.0 + 1e-4).contains(a)), "{alpha:?}");
+        assert!(alpha[39] > 0.99, "{alpha:?}");
+    }
+
+    #[test]
+    fn fade_converges_at_the_first_unstable_gap() {
+        let alpha = fade_in(SPRING_UNSTABLE_GAP, 60);
+        for pair in alpha.windows(2) {
+            assert!(pair[1] >= pair[0] - 1e-4, "alpha went backwards: {alpha:?}");
+        }
+        assert!(alpha[59] > 0.99, "{alpha:?}");
+    }
+
+    #[test]
+    fn normal_frame_rates_take_a_single_step() {
+        // At 120 Hz and 240 Hz the sub-stepping must not change the tuned feel.
+        let mut a = Spring::new(0.0);
+        let mut b = Spring::new(0.0);
+        a.step(1.0, 1.0 / 240.0, FADE_STIFFNESS, FADE_DAMPING);
+        let accel = FADE_STIFFNESS * (1.0 - b.value) - FADE_DAMPING * b.velocity;
+        b.velocity += accel / 240.0;
+        b.value += b.velocity / 240.0;
+        // One sub-step of h = dt is the old integrator up to rounding.
+        assert!((a.value - b.value).abs() < 1e-7, "{a:?} vs {b:?}");
+        assert!((a.velocity - b.velocity).abs() < 1e-5, "{a:?} vs {b:?}");
+    }
+
+    #[test]
+    fn rect_springs_settle_at_the_clamped_gap() {
+        let mut spring = Spring::new(0.0);
+        for _ in 0..80 {
+            spring.step(500.0, 0.05, RECT_STIFFNESS, RECT_DAMPING);
+        }
+        assert!(spring.settled(500.0, 0.3), "{spring:?}");
+    }
+
+    #[test]
+    fn non_finite_state_snaps_to_target() {
+        let mut spring = Spring::new(f32::NAN);
+        spring.step(1.0, 0.05, FADE_STIFFNESS, FADE_DAMPING);
+        assert_eq!(spring.value, 1.0);
+        assert_eq!(spring.velocity, 0.0);
+    }
+}
