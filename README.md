@@ -27,12 +27,12 @@ ShojiWM's NDJSON IPC socket via the MinkaIPC crate.
 - Snap rect is treated as output-local logical coordinates. If testing shows
   the preview offset from the drop zone, the compositor is sending
   workspace-area coords and an offset needs adding here.
-- The ShojiWM config spawns `target/release/MinkaFX` guarded by `[ -x ... ]`,
+- The ShojiWM config spawns `$MINKA_FX_BIN` (else `/usr/bin/MinkaFX`) guarded by `[ -x ... ]`,
   logging to `/tmp/minkafx.log`; if the binary is missing the spawn is a
   silent no-op.
 
 ## Building
 
 ```sh
-cargo build --release   # binary: target/release/MinkaFX
+cargo build --release   # binary: ../target/release/MinkaFX (the MinkaDE Cargo workspace's target/)
 ```
