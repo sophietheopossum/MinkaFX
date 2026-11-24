@@ -61,7 +61,7 @@ fn debug_enabled() -> bool {
 macro_rules! fx_debug {
     ($($arg:tt)*) => {
         if crate::debug_enabled() {
-            eprintln!($($arg)*);
+            minka_note::note!($($arg)*);
         }
     };
 }
@@ -184,7 +184,7 @@ pub fn main() {
         _ipc: ipc,
     };
 
-    eprintln!("[MinkaFX] up; waiting for outputs and snap.preview broadcasts");
+    minka_note::note!("[MinkaFX] up; waiting for outputs and snap.preview broadcasts");
 
     loop {
         event_loop
@@ -200,7 +200,7 @@ pub fn main() {
 
 fn env_logging() {
     // Timestamps make /tmp/minkafx.log correlatable with minkashell.log.
-    eprintln!(
+    minka_note::note!(
         "[minka-fx] start {:?}",
         std::time::SystemTime::now(),
     );
@@ -369,7 +369,7 @@ impl App {
             .set_input_region(Some(region.wl_region()));
         layer.commit();
 
-        eprintln!(
+        minka_note::note!(
             "[minka-fx] overlay created for output {:?}",
             connector.as_deref().unwrap_or("<unnamed>")
         );
@@ -443,10 +443,10 @@ impl App {
         event: IpcEvent,
     ) {
         match event {
-            IpcEvent::Connected => eprintln!(
+            IpcEvent::Connected => minka_note::note!(
                 "[minka-fx] ipc connected",
             ),
-            IpcEvent::Disconnected => eprintln!(
+            IpcEvent::Disconnected => minka_note::note!(
                 "[minka-fx] ipc lost, retrying",
             ),
             IpcEvent::Broadcast { event, payload } if event == "snap.preview" => {
@@ -507,7 +507,7 @@ impl App {
                 .iter()
                 .map(|o| o.connector.clone().unwrap_or_default())
                 .collect();
-            eprintln!(
+            minka_note::note!(
                 "[minka-fx] snap.preview for unknown output {monitor:?}; overlays: {known:?}"
             );
             return;
@@ -522,7 +522,7 @@ impl App {
                 if overlay.alpha.value < 0.02 && overlay.target.is_none() {
                     // One line per preview session — enough to debug an
                     // invisible preview without flooding during drags.
-                    eprintln!(
+                    minka_note::note!(
                         "[minka-fx] snap preview begin on {monitor}: rect {rect:?} tiling={tiling} surface {}x{} scale {} configured={} gpu={}",
                         overlay.width,
                         overlay.height,
@@ -589,7 +589,7 @@ impl App {
                 },
             ))
             .expect("wgpu device");
-            eprintln!("[minka-fx] gpu: {}", adapter.get_info().name);
+            minka_note::note!("[minka-fx] gpu: {}", adapter.get_info().name);
             self.gpu = Some(
                 SharedGpu {
                     adapter,
@@ -791,7 +791,7 @@ impl App {
         if idle {
             overlay.alpha.snap(0.0);
             if overlay.slow_frames > 0 {
-                eprintln!(
+                minka_note::note!(
                     "[minka-fx] preview on {}: {} frames, {} gaps over {:.0} ms (longest {:.0} ms)",
                     overlay.connector.as_deref().unwrap_or("<unnamed>"),
                     overlay.frames,
@@ -838,7 +838,7 @@ impl App {
         let frame = match gpu.surface.get_current_texture() {
             Ok(frame) => frame,
             Err(err) => {
-                eprintln!("[minka-fx] get_current_texture: {err:?}");
+                minka_note::note!("[minka-fx] get_current_texture: {err:?}");
                 gpu.surface.configure(&shared.device, &gpu.config);
                 return;
             }
@@ -1029,7 +1029,7 @@ impl OutputHandler for App {
         let name = self.output_state.info(&output).and_then(|info| info.name);
         if let Some(overlay) = self.overlays.iter_mut().find(|o| o.output == output) {
             if overlay.connector != name {
-                eprintln!(
+                minka_note::note!(
                     "[minka-fx] output named {:?}",
                     name
                         .as_deref()

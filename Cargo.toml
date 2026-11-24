@@ -12,6 +12,8 @@ path = "src/lib.rs"
 doctest = false
 
 [dependencies]
+# MinkaDE's log line (minka-note/, at the top of the checkout): one write(2) each.
+minka-note = { path = "../minka-note" }
 MinkaIPC = { path = "../MinkaIPC" }
 calloop = "0.14"
 calloop-wayland-source = "0.4"
