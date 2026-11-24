@@ -4,9 +4,12 @@ version = "0.1.0"
 edition = "2021"
 description = "wgpu overlay process for MinkaDE: snap preview + OSDs"
 
-[[bin]]
-name = "MinkaFX"
-path = "src/main.rs"
+# A library: MinkaDE's one binary (minka/, at the top of the checkout) runs it
+# under the name it was started as. Nothing is built from here alone.
+[lib]
+name = "minka_fx"
+path = "src/lib.rs"
+doctest = false
 
 [dependencies]
 MinkaIPC = { path = "../MinkaIPC" }

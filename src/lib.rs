@@ -98,7 +98,7 @@ const FADE_STIFFNESS: f32 = 900.0;
 // critical
 const FADE_DAMPING: f32 = 60.0;
 
-fn main() {
+pub fn main() {
     env_logging();
     let conn = Connection::connect_to_env()
         .expect(

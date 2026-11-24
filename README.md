@@ -34,5 +34,9 @@ ShojiWM's NDJSON IPC socket via the MinkaIPC crate.
 ## Building
 
 ```sh
-cargo build --release   # binary: ../target/release/MinkaFX (the MinkaDE Cargo workspace's target/)
+cargo build --profile release-fast -p minka   # from the MinkaDE checkout
 ```
+
+MinkaFX is a library in MinkaDE's one binary, `minka`; the minkade package
+installs `/usr/bin/MinkaFX` as a link to it. To try a checkout build, point
+`MINKA_FX_BIN` at a script that runs `exec /path/to/minka MinkaFX "$@"`.
